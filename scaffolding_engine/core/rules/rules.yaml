@@ -1,0 +1,175 @@
+version: "2"
+
+prompt_instructions:
+  detection_phase: |
+    If the project matches one of the 'exact_match_templates' below, you MUST return the EXACT string key (e.g., 'react', 'java_springboot'). 
+    Evaluate the 'match_all', 'match_any', and 'exclude' rules strictly.
+    For ALL OTHER languages or frameworks (e.g., nextjs, nestjs, go, rust), there is no boundary — return the generic framework or runtime name.
+  dockerfile_generation_phase: |
+    Follow the framework_profiles strictly. Do not guess start commands if instructed to extract them from configuration files like package.json.
+    Always map the detected lockfile to the correct package manager using the package_manager_mapping rules.
+
+dockerfile_standards:
+  workdir: "/app"
+  non_root:
+    alpine_user_setup: "addgroup -S appgroup && adduser -S appuser -G appgroup"
+    debian_user_setup: "groupadd -r appgroup && useradd -r -g appgroup appuser"
+    user_directive: "USER appuser"
+  curl_installation:
+    alpine: "RUN apk add --no-cache curl"
+    debian: "# curl available by default in slim images"
+
+healthcheck_generation:
+  interval: "30s"
+  timeout: "5s"
+  start_period: "10s"
+  retries: 3
+  logic:
+    if_health_endpoint_exists: "curl --fail http://localhost:{port}{health_path} || exit 1"
+    otherwise: "omit_healthcheck" # Prevents APIs returning 404 at root from entering CrashLoopBackOff
+
+filesystem:
+  read_only_root: true
+  writable_paths:
+    nextjs: 
+      - "/tmp"
+      - "/tmp/.next_cache"
+    react: 
+      - "/tmp"
+      - "/var/cache/nginx"
+      - "/var/run"
+    node: 
+      - "/tmp"
+    python: 
+      - "/tmp"
+    java: 
+      - "/tmp"
+    go: 
+      - "/tmp"
+
+package_managers:
+  mapping:
+    "package-lock.json": "npm"
+    "pnpm-lock.yaml": "pnpm"
+    "yarn.lock": "yarn"
+    "bun.lockb": "bun"
+  commands:
+    npm: { install: "npm ci" }
+    pnpm: { install: "pnpm install --frozen-lockfile" }
+    yarn: { install: "yarn install --frozen-lockfile" }
+    bun: { install: "bun install --frozen-lockfile" }
+
+dockerignore:
+  node: 
+    - ".git"
+    - "node_modules"
+    - "dist"
+    - ".next"
+    - "coverage"
+  python: 
+    - ".git"
+    - "__pycache__"
+    - "*.pyc"
+    - ".venv"
+    - "venv"
+
+# --- EXACT MATCH TEMPLATES (Triggers Local Go Templates) ---
+exact_match_templates:
+  react:
+    match_all:
+      dependencies: ["react"]
+    exclude:
+      dependencies: ["next"]
+      files: ["next.config.js", "next.config.ts"]
+  expressjs:
+    match_all:
+      dependencies: ["express"]
+  django:
+    match_any:
+      files: ["manage.py"]
+      dependencies: ["django"]
+  fastapi:
+    match_any:
+      dependencies: ["fastapi"]
+  java_springboot:
+    match_any:
+      dependencies: ["spring-boot", "org.springframework.boot"]
+      
+# --- AI FALLBACK HINTS (Helps AI identify generic runtimes) ---
+ai_fallback_hints:
+  nextjs:
+    match_any:
+      dependencies: ["next"]
+      files: ["next.config.js", "next.config.ts"]
+  nestjs:
+    match_any:
+      dependencies: ["@nestjs/core"]
+      files: ["nest-cli.json"]
+  go:
+    match_any:
+      files: ["go.mod"]
+
+# --- FRAMEWORK PROFILES (For Dynamic Dockerfile Generation Only) ---
+framework_profiles:
+  nextjs:
+    base_image: "node:{version}-alpine"
+    default_version: "22"
+    default_port: 3000
+    build_command: "npm run build"
+    image_type: "alpine"
+    standalone_mode_rules:
+      instruction: "Inspect next.config.js/ts. If output is 'standalone', use standalone rules. Otherwise, use standard rules."
+      standalone:
+        start_command: "node server.js"
+        artifact_rules:
+          avoid_copying: ["next.config.js", "next.config.ts"]
+          required_artifacts: [".next/standalone", ".next/static", "public"]
+      standard:
+        start_command: "npm start"
+        artifact_rules:
+          required_artifacts: [".next", "public", "package.json", "node_modules"]
+
+  nestjs:
+    base_image: "node:{version}-alpine"
+    default_version: "22"
+    default_port: 3000
+    build_command: "npm run build"
+    start_command_instruction: "Extract the exact start command from the package.json 'scripts' block (prefer 'start:prod' or 'start'). Do not guess."
+    image_type: "alpine"
+
+  go:
+    build_base_image: "golang:{version}-alpine"
+    run_base_image: "alpine:3.19"
+    default_version: "1.22"
+    default_port: 8080
+    build_command: "go build -o main ."
+    static_binary: true
+    strip_binary: true
+    image_type: "alpine"
+
+approved_base_images:
+  - "python"
+  - "node"
+  - "nginx"
+  - "golang"
+  - "maven"
+  - "eclipse-temurin"
+  - "alpine"
+
+deployment_standards:
+  registry: "127.0.0.1:5001"
+  image_pull_policy: "Always"
+  security_context:
+    pod:
+      automount_service_account_token: false
+      run_as_non_root: true
+      run_as_user: 1000
+      run_as_group: 1000
+      fs_group: 1000
+    container:
+      allow_privilege_escalation: false
+      read_only_root_filesystem: true
+      drop_capabilities: ["ALL"]
+  resources:
+    requests: {cpu: "100m", memory: "128Mi"}
+    limits: {cpu: "500m", memory: "512Mi"}

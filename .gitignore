@@ -1,0 +1,44 @@
+# Binaries
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+
+# Test binary
+*.test
+
+# Output of the go coverage tool
+*.out
+
+# Go workspace file
+go.work
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Build output
+/bin/
+/dist/
+
+# Dynamic sandbox port allocation
+.pipeline/
+
+# Demo app — pipeline init generates these locally; keep demo/ as source-only
+demo/Dockerfile
+demo/Jenkinsfile
+demo/pipeline.yaml
+demo/k8s/
+demo/.kubeconfig-jenkins
+demo/__pycache__/
+demo/.pytest_cache/
+demo/.venv/
+demo/tests/__pycache__/
