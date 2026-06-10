@@ -15,7 +15,7 @@ const (
 	DefaultRegistry     = 5001
 	DefaultJenkins      = 8080
 	DefaultJenkinsAgent = 50000
-	DefaultTunnel       = 8081
+	DefaultTunnel       = 3000
 
 	registryContainer = "local-registry"
 	jenkinsContainer  = "local-jenkins"
