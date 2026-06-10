@@ -481,7 +481,7 @@ func monitorKubernetesDeployment(appName string) {
 			fmt.Println("\033[1;32m━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\033[0m")
 
 			cliName := filepath.Base(os.Args[0])
-			fmt.Printf("\033[33m👉 Run '%s tunnel' to access it at http://localhost:8081\033[0m\n\n", cliName)
+			fmt.Printf("\033[33m👉 Run '%s tunnel' to access it at http://localhost:%d\033[0m\n\n", cliName, loadSandboxPorts().Tunnel)
 
 		} else {
 

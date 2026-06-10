@@ -93,6 +93,11 @@ func ResolveSandboxPorts(projectPath string, kindClusterExists bool) (SandboxPor
 	saved, _ := Load(projectPath)
 	ports := Defaults()
 
+	// Ports promised earlier in this run but not yet bound by any process
+	// (e.g. Jenkins is resolved before its container starts), so isPortFree
+	// alone cannot prevent double allocation.
+	taken := map[int]bool{}
+
 	var err error
 
 	ports.Registry, err = resolveServicePort(
@@ -101,10 +106,12 @@ func ResolveSandboxPorts(projectPath string, kindClusterExists bool) (SandboxPor
 		registryContainer,
 		5000,
 		kindClusterExists,
+		taken,
 	)
 	if err != nil {
 		return SandboxPorts{}, fmt.Errorf("registry port: %w", err)
 	}
+	taken[ports.Registry] = true
 
 	ports.Jenkins, err = resolveServicePort(
 		saved.Jenkins,
@@ -112,10 +119,12 @@ func ResolveSandboxPorts(projectPath string, kindClusterExists bool) (SandboxPor
 		jenkinsContainer,
 		8080,
 		false,
+		taken,
 	)
 	if err != nil {
 		return SandboxPorts{}, fmt.Errorf("jenkins port: %w", err)
 	}
+	taken[ports.Jenkins] = true
 
 	ports.JenkinsAgent, err = resolveServicePort(
 		saved.JenkinsAgent,
@@ -123,10 +132,12 @@ func ResolveSandboxPorts(projectPath string, kindClusterExists bool) (SandboxPor
 		"",
 		0,
 		false,
+		taken,
 	)
 	if err != nil {
 		return SandboxPorts{}, fmt.Errorf("jenkins agent port: %w", err)
 	}
+	taken[ports.JenkinsAgent] = true
 
 	ports.Tunnel, err = resolveServicePort(
 		saved.Tunnel,
@@ -134,6 +145,7 @@ func ResolveSandboxPorts(projectPath string, kindClusterExists bool) (SandboxPor
 		"",
 		0,
 		false,
+		taken,
 	)
 	if err != nil {
 		return SandboxPorts{}, fmt.Errorf("tunnel port: %w", err)
@@ -153,7 +165,12 @@ func ResolveSandboxPorts(projectPath string, kindClusterExists bool) (SandboxPor
 // ResolveTunnelPort allocates a tunnel port at runtime (prefers default, then scans).
 func ResolveTunnelPort(projectPath string) (int, error) {
 	saved, _ := Load(projectPath)
-	port, err := resolveServicePort(saved.Tunnel, DefaultTunnel, "", 0, false)
+	taken := map[int]bool{
+		saved.Registry:     true,
+		saved.Jenkins:      true,
+		saved.JenkinsAgent: true,
+	}
+	port, err := resolveServicePort(saved.Tunnel, DefaultTunnel, "", 0, false, taken)
 	if err != nil {
 		return 0, err
 	}
@@ -163,7 +180,7 @@ func ResolveTunnelPort(projectPath string) (int, error) {
 	return port, nil
 }
 
-func resolveServicePort(saved, preferred int, containerName string, internalPort int, lockToSaved bool) (int, error) {
+func resolveServicePort(saved, preferred int, containerName string, internalPort int, lockToSaved bool, taken map[int]bool) (int, error) {
 	if containerName != "" && internalPort > 0 {
 		if hostPort, ok := containerHostPort(containerName, internalPort); ok {
 			if hostPort != preferred {
@@ -174,20 +191,20 @@ func resolveServicePort(saved, preferred int, containerName string, internalPort
 	}
 
 	if lockToSaved && saved > 0 {
-		if isPortFree(saved) {
+		if !taken[saved] && isPortFree(saved) {
 			return saved, nil
 		}
 		return 0, fmt.Errorf("port %d is required by the existing Kind cluster but is already in use — run 'pipeline destroy-ci' first", saved)
 	}
 
-	if isPortFree(preferred) {
+	if !taken[preferred] && isPortFree(preferred) {
 		return preferred, nil
 	}
 
 	fmt.Printf("\033[33m⚠️  Port %d is busy — searching for a free port...\033[0m\n", preferred)
 
 	for candidate := preferred + 1; candidate <= preferred+200; candidate++ {
-		if isPortFree(candidate) {
+		if !taken[candidate] && isPortFree(candidate) {
 			fmt.Printf("\033[1;32m✓\033[0m Using port %d instead of %d\n", candidate, preferred)
 			return candidate, nil
 		}
